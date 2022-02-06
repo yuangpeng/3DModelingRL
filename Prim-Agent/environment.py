@@ -46,8 +46,10 @@ class Environment():
 
     # ['demo', 'eval/demo-16.binvox', 'eval/demo-64.binvox', 'rgb', 'demo.png']
     def reset(self, shape_infopack):
-
         # the information data of the new shape
+        # vox_l_fn -> 16x16x16 的体素空间，里面有目标模型
+        # vox_h_fn -> 64x64x64 的体素空间，里面有目标模型
+        # ref_fn -> 参考的目标模型的png图片
         self.name, vox_l_fn, vox_h_fn, ref_type, ref_fn = shape_infopack
 
         # reset all
@@ -58,6 +60,7 @@ class Environment():
         self.step_count = 0
         self.step_vec = np.zeros((self.max_step), dtype=np.int)
 
+        # 对图片预处理，变成 1x128x128 的灰度图，且归一化
         # load reference image
         img = Image.open(ref_fn)
         if ref_type == 'rgb':
@@ -73,18 +76,22 @@ class Environment():
         img = np.expand_dims(img, axis=0)
         self.ref = img/255.0
 
+        # 把体素空间用 true or false 表示，像我的世界一样，有方块为true，无方块的地方为false
         # load groundtruth data
         shape = utils.load_voxel_data(vox_l_fn).astype(np.int)
         shape_h = utils.load_voxel_data(vox_h_fn).astype(np.int)
-
         # process and reset groundtruth
         shape = sn.binary_dilation(shape)
         shape_h = sn.binary_dilation(shape_h)
-        self.target_points = np.argwhere(shape == 1)
-        self.target_h_points = np.argwhere(shape_h == 1)
         self.target = shape
         self.target_h = shape_h
 
+        # 记录了那些true的位置 (true的个数， 3)，3代表三维坐标
+        self.target_points = np.argwhere(shape == 1)
+        self.target_h_points = np.argwhere(shape_h == 1)
+
+        # all_boxes[0 - 26] = [x, y, z, x_, y_, z_]
+        # 返回对应论文的 (reference, primitives, step indicator)
         return self.ref, self.all_boxes/self.vox_size_l, self.step_vec
 
     # 初始化 3x3x3 box环境
