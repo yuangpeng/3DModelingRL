@@ -5,6 +5,7 @@ import copy
 from PIL import Image
 from utils import utils
 import config as p
+import math
 
 
 class Environment():
@@ -190,19 +191,22 @@ class Environment():
     def compute_increment(self, box):
         # voxelize the boxes
         # canvas -> 和 self.target 张一样的全0矩阵
-        canvas = np.zeros_like(self.target, dtype=np.int)
+        # target -> target_h
+        canvas = np.zeros_like(self.target_h, dtype=np.int)
 
         # box 大小限定在[0, self.vox_size_l - 1] -> clip_box
         clip_box = np.clip(box, 0, self.vox_size_l-1)
         # box -> canvas
+        left = lambda x: int(x * 4) + round(math.ceil(x * 4) - x * 4)
+        right = lambda x: int(x * 4) + round(x * 4 - math.floor(x * 4))
         for i in range(self.box_num):
             [x, y, z, x_, y_, z_] = clip_box[i][0:6]
-            canvas[x:x_, y:y_, z:z_] = 1
+            canvas[left(x):right(x_), left(y):right(y_), left(z):right(z_)] = 1
 
-        intersect = canvas & self.target
+        intersect = canvas & self.target_h
         i_count = np.sum(intersect == 1)
 
-        union = canvas | self.target
+        union = canvas | self.target_h
         u_count = np.sum(union == 1)
 
         delete_count = 0
@@ -219,10 +223,10 @@ class Environment():
                 [x, y, z, x_, y_, z_] = clip_box[i][0:6]
                 single_canvas[x:x_, y:y_, z:z_] = 1
 
-                single_intersect = single_canvas & self.target
+                single_intersect = single_canvas & self.target_h
                 s_i_count = np.sum(single_intersect == 1)
 
-                single_union = single_canvas | self.target
+                single_union = single_canvas | self.target_h
                 s_u_count = np.sum(single_union == 1)
 
                 local_iou = float(s_i_count) / float(s_u_count)
