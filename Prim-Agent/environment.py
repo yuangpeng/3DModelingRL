@@ -6,7 +6,7 @@ from PIL import Image
 from utils import utils
 import config as p
 import math
-#zyx
+#zyx hxy
 
 class Environment():
     def __init__(self):
