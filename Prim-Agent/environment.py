@@ -1,11 +1,12 @@
+from utils import utils
+import config as p
 import numpy as np
 from numpy.lib.function_base import delete
 import torch
 import scipy.ndimage as sn
 import copy
 from PIL import Image
-from utils import utils
-import config as p
+
 import gym
 from gym import Env
 from gym.spaces import Box
@@ -61,8 +62,8 @@ class Environment():
         self.target_points = np.zeros((1, 3))
         self.target_h_points = np.zeros((1, 3))
 
-        self.init_boxes = self.initialize_box()
-        self.all_boxes = copy.copy(self.init_boxes)
+        
+     
         
         self.name = 'Shit Mountain of chimera'
         
@@ -98,15 +99,17 @@ class Environment():
                     count+=1
           return init_boxes
        
-        self.low_state = np.full((162,),-16,np.float32,)
+        self.low_state = np.full((162,),0,np.float32,)
         self.high_state =np.full((162,),16,np.float32,)
         self.observation_space = spaces.Box(
             low=self.low_state, high=self.high_state, dtype=np.float32
         )
+        self.init_boxes =initialize_box(self)
+        self.all_boxes = copy.copy(self.init_boxes)
         #inite state
         booox=initialize_box(self)
         self.state =np.reshape(booox,(162,),)
-        self.colors = np.array(p.COLORS)
+        self.colors = np.array(COLORS)
     
     
       
@@ -263,7 +266,8 @@ class Environment():
         return self.state,self.ref, self.all_boxes/self.vox_size_l, self.step_vec
         
         
-    
+  
+
         
     
     
