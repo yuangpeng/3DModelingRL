@@ -30,7 +30,6 @@ class IL():
         self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=LR)
         self.loss_func = nn.MSELoss()
         self.learn_step_counter = 0
-    def get_virtual_expert_action(self, env,valid_mask, agent,random=False):
         action_id = 0
 
         # map action id to box_id (27), [c1:x,y,z; c2:x,y,z; delete] (7), range[-2,-1,1,2] (4)
@@ -49,7 +48,10 @@ class IL():
                     action_map[action_id] = para
 
                     action_id += 1
-            box_id = env.step_count % env.box_num
+
+    def get_virtual_expert_action(self, env,valid_mask, agent,random=False):
+
+        box_id = env.step_count % env.box_num
 
         max_action = -1
         max_reward = -1000
@@ -62,7 +64,7 @@ class IL():
 
         for i in range(box_level_range):
             for j in range(4):
-                action = map_action[box_id, i, j]
+                action = self.map_action[box_id, i, j]
 
                 if valid_mask[action] == 0:
                     continue
@@ -75,27 +77,14 @@ class IL():
 
         return max_action
     def get_valid_action_mask(self, env,boxes_normalized):
-        action_map = np.zeros((27 * 7 * 4, 3), dtype=int)
-        map_action = np.zeros((27, 7, 4), dtype=int)
-        for i in range(27):
-            for j in range(7):
-                for k in range(1, 5):
 
-                    map_action[i][j][k-1] = action_id
-
-                    if k >= 3:
-                        k = k - 5
-                    para = np.array([i, j, k])
-                    action_map[action_id] = para
-
-                    action_id += 1
-            box_id = env.step_count % env.box_num
+        box_id = env.step_count % env.box_num
         boxes = boxes_normalized*env.vox_size_l
         valid_mask = np.ones((env.action_num), dtype=np.int)
 
         for a in range(env.action_num):
 
-            i, j, k = action_map[a]
+            i, j, k = self.action_map[a]
             box_id = env.step_count % env.box_num
             # only edit an designated box
             if i != box_id:
@@ -116,23 +105,10 @@ class IL():
 
         return valid_mask
     def tweak_box(self, action,env):
-        action_map = np.zeros((27 * 7 * 4, 3), dtype=int)
-        map_action = np.zeros((27, 7, 4), dtype=int)
-        for i in range(27):
-            for j in range(7):
-                for k in range(1, 5):
 
-                    map_action[i][j][k-1] = action_id
-
-                    if k >= 3:
-                        k = k - 5
-                    para = np.array([i, j, k])
-                    action_map[action_id] = para
-
-                    action_id += 1
-            box_id = env.step_count % env.box_num
+        box_id = env.step_count % env.box_num
         try_box = copy.copy(env.all_boxes)
-        i, j, k = action_map[action]
+        i, j, k = self.action_map[action]
 
         # delete action
         if j == 6:
@@ -240,21 +216,7 @@ class IL():
         return env.ref, try_boxes/self.vox_size_l, step_vec, reward, done
 
     def imitation_learning(agent, env, writer, shape_list):
-        action_map = np.zeros((27 * 7 * 4, 3), dtype=int)
-        map_action = np.zeros((27, 7, 4), dtype=int)
-        for i in range(27):
-            for j in range(7):
-                for k in range(1, 5):
-
-                    map_action[i][j][k-1] = action_id
-
-                    if k >= 3:
-                        k = k - 5
-                    para = np.array([i, j, k])
-                    action_map[action_id] = para
-
-                    action_id += 1
-            box_id = env.step_count % env.box_num
+        box_id = env.step_count % env.box_num
         episode_count = 0
         # DAGGER_EPOCH = 1
         for epoch in range(DAGGER_EPOCH):
@@ -285,7 +247,7 @@ class IL():
                         # poll the expert
                         a = agent.get_virtual_expert_action(valid_mask)
                         s_, box_, step_, r, done = agent.next_no_update(a)
-                        expert_action = action_map[a]
+                        expert_action = self.action_map[a]
 
                         agent.memory_long.store(s, a, r, s_, done)
                         agent.memory_self.store(s, a, r, s_, done)
@@ -293,7 +255,7 @@ class IL():
                         # update the state
                         if episode != 0:
                             a = agent.choose_action(s, box, step, valid_mask, 1.0)
-                        real_action = action_map[a]
+                        real_action = self.action_map[a]
                         s_, r, done, info = env.step(a)
 
                         acm_r += r
