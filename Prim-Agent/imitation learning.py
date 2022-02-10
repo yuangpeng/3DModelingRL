@@ -7,7 +7,29 @@ import copy
 DAGGER_EPOCH = 1
 DAGGER_ITER = 4
 DAGGER_LEARN = 4000
+GAMMA = 0.9                  # reward discount
+BOX_NUM = 27
+BATCH_SIZE = 64
+TARGET_REPLACE_ITER = 4000 
+ACTION_NUM = 756
+MEMORY_LONG_CAPACITY = 2000
+MEMORY_SELF_CAPACITY = 1000  # shared by D_short and D_self
+LR = 0.00008    
 class IL():
+    def __init__(self, weights_path=None):
+        self.eval_net, self.target_net = Net(), Net()
+
+        if weights_path is not None:
+            self.eval_net.load_state_dict(torch.load(weights_path))
+            self.target_net.load_state_dict(torch.load(weights_path))
+
+        # the memory_self is shared by D_short in IL and D_self in RL
+        self.memory_long = Memory(MEMORY_LONG_CAPACITY)
+        self.memory_self = Memory(MEMORY_SELF_CAPACITY)
+
+        self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=LR)
+        self.loss_func = nn.MSELoss()
+        self.learn_step_counter = 0
     def get_virtual_expert_action(self, env,valid_mask, agent,random=False):
 
         if not random:
@@ -82,14 +104,14 @@ class IL():
         return try_box
 
     def learn(self, learning_mode, is_ddqn=True):
-        if self.learn_step_counter % p.TARGET_REPLACE_ITER == 0:
+        if self.learn_step_counter % TARGET_REPLACE_ITER == 0:
             self.target_net.load_state_dict(self.eval_net.state_dict())
 
         self.learn_step_counter += 1
 
         # only IL by supervised-error only
         if learning_mode == 0:
-            samples_from_expert = int(p.BATCH_SIZE*0.5)
+            samples_from_expert = int(BATCH_SIZE*0.5)
 
         # only RL by td-error only
         elif learning_mode == 1:
@@ -97,14 +119,14 @@ class IL():
 
         # jointly by td-error and supervised error
         elif learning_mode == 2:
-            samples_from_expert = int(p.BATCH_SIZE*0.5)
+            samples_from_expert = int(BATCH_SIZE*0.5)
 
         # jointly by td-error
         elif learning_mode == 3:
-            samples_from_expert = int(p.BATCH_SIZE*0.5)
+            samples_from_expert = int(BATCH_SIZE*0.5)
 
         bs1, ba1, br1, bs_1, done = self.memory_long.sample(samples_from_expert)
-        bs2, bstep2, ba2, br2, bs_2, done= self.memory_self.sample(p.BATCH_SIZE-samples_from_expert)
+        bs2, bstep2, ba2, br2, bs_2, done= self.memory_self.sample(BATCH_SIZE-samples_from_expert)
 
         bs = torch.FloatTensor(np.concatenate((bs1, bs2), axis=0))
         ba = torch.FloatTensor(np.concatenate((ba1, ba2), axis=0)).long()
@@ -113,17 +135,17 @@ class IL():
 
         # expert's action's q_value
         # q_all_actions = Q(s), current Q network
-        q_all_actions = self.eval_net(bs, bbox, bstep)
+        q_all_actions = self.eval_net(bs)
         q_a_expert = q_all_actions.gather(1, ba)
 
         # margin function
-        margin = torch.FloatTensor(np.ones((p.BATCH_SIZE, p.ACTION_NUM)))*0.8
-        t = np.linspace(0, p.BATCH_SIZE-1, p.BATCH_SIZE).astype(np.int)
+        margin = torch.FloatTensor(np.ones((BATCH_SIZE, ACTION_NUM)))*0.8
+        t = np.linspace(0, BATCH_SIZE-1, BATCH_SIZE).astype(np.int)
         margin[t, ba[t, 0]] = 0
 
         # predicted maximal q_value with margin function
         q_a_predicted = q_all_actions + margin
-        q_a_predicted = q_a_predicted.max(1)[0].view(p.BATCH_SIZE, 1)
+        q_a_predicted = q_a_predicted.max(1)[0].view(BATCH_SIZE, 1)
 
         # compute the supervised loss
         loss1 = torch.mean(q_a_predicted - q_a_expert)
@@ -131,16 +153,16 @@ class IL():
         # compute td error by target net
         if not is_ddqn:
             # the loss function of DQN
-            q_a_next = self.target_net(bs_, bbox_, bstep_).detach()
-            q_a_target = br + p.GAMMA * q_a_next.max(1)[0].view(p.BATCH_SIZE, 1)
+            q_a_next = self.target_net(bs_).detach()
+            q_a_target = br + GAMMA * q_a_next.max(1)[0].view(BATCH_SIZE, 1)
             loss2 = self.loss_func(q_a_expert, q_a_target)
 
         else:
             # the loss function of DDQN
-            q_a_next = self.target_net(bs_, bbox_, bstep_).detach()
+            q_a_next = self.target_net(bs_).detach()
             # action choose from current Q network
-            best_action = self.eval_net(bs_, bbox_, bstep_).max(1)[1].view(p.BATCH_SIZE, 1)
-            q_a_target = br + p.GAMMA * q_a_next.gather(1, best_action)
+            best_action = self.eval_net(bs_).max(1)[1].view(BATCH_SIZE, 1)
+            q_a_target = br + GAMMA * q_a_next.gather(1, best_action)
             loss2 = self.loss_func(q_a_expert, q_a_target)
 
         # only IL by supervised-error only
