@@ -1,16 +1,19 @@
 import torch
 import numpy as np
 from memory import Memory
+import torch.nn as nn
+import torch.nn.functional as F
+import copy
 DAGGER_EPOCH = 1
 DAGGER_ITER = 4
 DAGGER_LEARN = 4000
 class IL():
-    def get_virtual_expert_action(self, valid_mask, random=False):
+    def get_virtual_expert_action(self, env,valid_mask, agent,random=False):
 
         if not random:
-            box_id = self.step_count % self.box_num
+            box_id = env.step_count % env.box_num
         else:
-            box_id = np.random.randint(0, self.box_num)
+            box_id = np.random.randint(0, env.box_num)
 
         max_action = -1
         max_reward = -1000
@@ -18,32 +21,32 @@ class IL():
         box_level_range = 6
 
         # allow delete actions
-        if self.step_count > self.max_step*0.5:
+        if env.step_count > env.max_step*0.5:
             box_level_range = 7
 
         for i in range(box_level_range):
             for j in range(4):
-                action = self.map_action[box_id, i, j]
+                action = env.map_action[box_id, i, j]
 
                 if valid_mask[action] == 0:
                     continue
 
-                s_, boxes_, step_, reward, done = self.next_no_update(action)
+                s_, boxes_, step_, reward, done = agent.next_no_update(action)
 
                 if reward > max_reward:
                     max_reward = reward
                     max_action = action
 
         return max_action
-    def get_valid_action_mask(self, boxes_normalized):
+    def get_valid_action_mask(self, env,boxes_normalized):
 
-        boxes = boxes_normalized*self.vox_size_l
-        valid_mask = np.ones((self.action_num), dtype=np.int)
+        boxes = boxes_normalized*env.vox_size_l
+        valid_mask = np.ones((env.action_num), dtype=np.int)
 
-        for a in range(self.action_num):
+        for a in range(env.action_num):
 
-            i, j, k = self.action_map[a]
-            box_id = self.step_count % self.box_num
+            i, j, k = env.action_map[a]
+            box_id = env.step_count % env.box_num
             # only edit an designated box
             if i != box_id:
                 valid_mask[a] = 0
@@ -62,6 +65,22 @@ class IL():
                         valid_mask[a] = 0
 
         return valid_mask
+    def tweak_box(self, action,env):
+        try_box = copy.copy(env.all_boxes)
+        i, j, k = env.action_map[action]
+
+        # delete action
+        if j == 6:
+            midx = try_box[i][0]
+            midy = try_box[i][1]
+            midz = try_box[i][2]
+            try_box[i][0:6] = [midx, midy, midz, midx, midy, midz]
+        # edit action
+        else:
+            try_box[i][j] = try_box[i][j] + k*env.m_unit
+
+        return try_box
+
     def learn(self, learning_mode, is_ddqn=True):
         if self.learn_step_counter % p.TARGET_REPLACE_ITER == 0:
             self.target_net.load_state_dict(self.eval_net.state_dict())
@@ -142,7 +161,7 @@ class IL():
         self.optimizer.step()
     def next_no_update(self, action, env):
 
-        try_boxes = env.tweak_box(action)
+        try_boxes = env.tweak_box(action,env)
         IOU, local_IOU, delete_count = env.compute_increment(try_boxes)
         reward = env.compute_reward(IOU, local_IOU, delete_count)
 
