@@ -1,16 +1,17 @@
 import numpy as np
 import config as p
-
-
+REF_IMG_RESO = 128
+BOX_NUM = 27
+MAX_STEP = 300
 class Memory():
 
     def __init__(self, capacity):
         super(Memory, self).__init__()
 
-        self.ref_size = p.REF_IMG_RESO
-        self.box_num = p.BOX_NUM
+        self.ref_size = REF_IMG_RESO
+        self.box_num = BOX_NUM
         self.capacity = capacity
-        self.max_step = p.MAX_STEP
+        self.max_step = MAX_STEP
 
         self.s_mem = np.zeros((self.capacity, 1, self.ref_size, self.ref_size))
 
