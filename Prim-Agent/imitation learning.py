@@ -49,7 +49,7 @@ class IL():
 
                     action_id += 1
 
-    def get_virtual_expert_action(self, env,valid_mask, agent,random=False):
+    def get_virtual_expert_action(self, env,valid_mask,random=False):
 
         box_id = env.step_count % env.box_num
 
@@ -69,7 +69,7 @@ class IL():
                 if valid_mask[action] == 0:
                     continue
 
-                s_, boxes_, step_, reward, done = agent.next_no_update(action)
+                s_, boxes_, step_, reward, done = self.next_no_update(action)
 
                 if reward > max_reward:
                     max_reward = reward
@@ -215,7 +215,7 @@ class IL():
 
         return env.ref, try_boxes/self.vox_size_l, step_vec, reward, done
 
-    def imitation_learning(agent, env, writer, shape_list):
+    def imitation_learning(self, env, writer, shape_list):
         box_id = env.step_count % env.box_num
         episode_count = 0
         # DAGGER_EPOCH = 1
@@ -237,24 +237,24 @@ class IL():
                     s, box, step = env.reset(shape_infopack)
 
                     episode_count += 1
-                    agent.memory_self.clear()
+                    self.memory_self.clear()
                     acm_r = 0
 
                     while True:
 
-                        valid_mask = agent.get_valid_action_mask(box)
+                        valid_mask = self.get_valid_action_mask(box)
 
                         # poll the expert
-                        a = agent.get_virtual_expert_action(valid_mask)
-                        s_, box_, step_, r, done = agent.next_no_update(a)
+                        a = self.get_virtual_expert_action(valid_mask)
+                        s_, box_, step_, r, done = self.next_no_update(a)
                         expert_action = self.action_map[a]
 
-                        agent.memory_long.store(s, a, r, s_, done)
-                        agent.memory_self.store(s, a, r, s_, done)
+                        self.memory_long.store(s, a, r, s_, done)
+                        self.memory_self.store(s, a, r, s_, done)
 
                         # update the state
                         if episode != 0:
-                            a = agent.choose_action(s, box, step, valid_mask, 1.0)
+                            a = self.choose_action(s, box, step, valid_mask, 1.0)
                         real_action = self.action_map[a]
                         s_, r, done, info = env.step(a)
 
@@ -272,4 +272,4 @@ class IL():
                     print('reward:', acm_r)
 
                     for learn in range(DAGGER_LEARN):
-                        agent.learn(learning_mode=2, is_ddqn=True)
+                        self.learn(learning_mode=2, is_ddqn=True)
