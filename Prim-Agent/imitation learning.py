@@ -215,7 +215,7 @@ class IL():
 
         return env.ref, try_boxes/self.vox_size_l, step_vec, reward, done
 
-    def imitation_learning(self, env, writer, shape_list):
+    def imitation_learning(self, env, shape_list):
         box_id = env.step_count % env.box_num
         episode_count = 0
         # DAGGER_EPOCH = 1
@@ -261,10 +261,7 @@ class IL():
                         acm_r += r
 
                         if done:
-                            # uncomment the following lines to output the intermediate results
-                            # log_info='IL_'+str(epoch)+'_shape_'+str(shape_count)+'_epi_'+str(episode)+'_r_'+str(format(acm_r, '.4f'))+'_'+shape_name
-                            # env.output_result(log_info, save_tmp_result_path)
-                            writer.add_scalar('Prim_IL/'+shape_category, acm_r, episode_count)
+
                             break
 
                         s = s_
