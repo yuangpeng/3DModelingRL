@@ -1,6 +1,7 @@
 GT_VOX_RESO_L = 16
 GT_VOX_RESO_H = 64
 REF_IMG_RESO = 128
+shape_infopack = ['demo', 'demo/eval/demo-16.binvox', 'demo/eval/demo-64.binvox', 'rgb', 'demo/demo.png']
 
 BOX_NUM = 27
 ACTION_NUM = 756

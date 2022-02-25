@@ -6,9 +6,12 @@ from PIL import Image
 from utils import utils
 import config as p
 import math
-#zyx hxy
+from gym import spaces
+import gym
+from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
-class Environment():
+class Environment(gym.Env):
     def __init__(self):
         super(Environment, self).__init__()
 
@@ -27,39 +30,50 @@ class Environment():
         self.target_points = np.zeros((1, 3))
         self.target_h_points = np.zeros((1, 3))
 
-        self.init_boxes = self.initialize_box()
-        self.all_boxes = copy.copy(self.init_boxes)
-
         self.name = ''
 
         self.last_IOU = 0
         self.last_delete = 0
         self.last_local_IOU = 0
         self.step_count = 0
-        self.step_vec = np.zeros((self.max_step), dtype=np.int)
+        self.step_vec = np.zeros((self.max_step), dtype=np.int64)
 
-        # unit movement, relative to vox_size_l
-        self.m_unit = 1.0
-
-        self.action_map, self.map_action = self.generate_action_map()
+        # # unit movement, relative to vox_size_l
+        # self.m_unit = 1.0
+        # self.action_map, self.map_action = self.generate_action_map()
 
         self.colors = np.array(p.COLORS)
 
+        self.max_action = np.ones((162,), dtype=np.float32)
+        self.min_action = np.full((162,), -1, dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=self.min_action, high=self.max_action, dtype=np.float32
+        )
+
+        self.min_state = np.full((162,), 0, np.float32)
+        self.max_state = np.full((162,), 16, np.float32)
+        self.observation_space = spaces.Box(
+            low=self.min_state, high=self.max_state, dtype=np.float32
+        )
+
+        self.all_boxes = self.__initialize_box()
+
+
     # ['demo', 'eval/demo-16.binvox', 'eval/demo-64.binvox', 'rgb', 'demo.png']
-    def reset(self, shape_infopack):
+    def reset(self):
         # the information data of the new shape
         # vox_l_fn -> 16x16x16 的体素空间，里面有目标模型
         # vox_h_fn -> 64x64x64 的体素空间，里面有目标模型
         # ref_fn -> 参考的目标模型的png图片
-        self.name, vox_l_fn, vox_h_fn, ref_type, ref_fn = shape_infopack
+        self.name, vox_l_fn, vox_h_fn, ref_type, ref_fn = p.shape_infopack
 
         # reset all
-        self.all_boxes = copy.copy(self.init_boxes)
+        self.all_boxes = self.__initialize_box()
         self.last_IOU = 0
         self.last_local_IOU = 0
         self.last_delete = 0
         self.step_count = 0
-        self.step_vec = np.zeros((self.max_step), dtype=np.int)
+        self.step_vec = np.zeros((self.max_step), dtype=np.int64)
 
         # 对图片预处理，变成 1x128x128 的灰度图，且归一化
         # load reference image
@@ -79,8 +93,8 @@ class Environment():
 
         # 把体素空间用 true or false 表示，像我的世界一样，有方块为true，无方块的地方为false
         # load groundtruth data
-        shape = utils.load_voxel_data(vox_l_fn).astype(np.int)
-        shape_h = utils.load_voxel_data(vox_h_fn).astype(np.int)
+        shape = utils.load_voxel_data(vox_l_fn).astype(np.int64)
+        shape_h = utils.load_voxel_data(vox_h_fn).astype(np.int64)
         # process and reset groundtruth
         shape = sn.binary_dilation(shape)
         shape_h = sn.binary_dilation(shape_h)
@@ -93,14 +107,14 @@ class Environment():
 
         # all_boxes[0 - 26] = [x, y, z, x_, y_, z_]
         # 返回对应论文的 (reference, primitives, step indicator)
-        return self.ref, self.all_boxes/self.vox_size_l, self.step_vec
+        return self.__get_observation()
 
     # 初始化 3x3x3 box环境
     # init_boxes[0 - 26] = [x, y, z, x_, y_, z_] 对角线
-    def initialize_box(self):
+    def __initialize_box(self):
         padding = 2
         size = int((self.vox_size_l - padding) / 3.0)
-        init_boxes = np.zeros((self.box_num, 6), dtype=np.int)
+        init_boxes = np.zeros((self.box_num, 6), dtype=np.float32)
         count = 0
         for i in range(3):
             for j in range(3):
@@ -110,6 +124,22 @@ class Environment():
                     init_boxes[count] = [x, y, z, x_, y_, z_]
                     count += 1
         return init_boxes
+
+    def __get_observation(self):
+        return np.reshape(self.all_boxes, (162,))
+
+    def __apply_action(self, action):
+        temp = self.__get_observation() + action
+        temp = np.clip(temp, 0, 16)
+        temp = np.reshape(temp, (27, 6))
+        for i in range(27):
+            delta = temp[3:6] - temp[0:3]
+            neg = delta[delta <= 0]
+            if neg.size != 0:
+                temp[3:6] = temp[0:3]
+
+        self.all_boxes = copy.copy(temp)
+
 
     # map_action[i][j][k] -> action_id
     # action_map[action_id] -> para -> i box_id, j [x y z x' y' z' delete], k parameters[-2,-1,1,2]
@@ -153,8 +183,10 @@ class Environment():
 
         return try_box
 
-    def next(self, action):
-        self.all_boxes = self.tweak_box(action)
+    def step(self, action):
+        self.__apply_action(action)
+        state = self.__get_observation()
+
         IOU, local_IOU, delete_count = self.compute_increment(self.all_boxes)
         reward = self.compute_reward(IOU, local_IOU, delete_count)
 
@@ -163,7 +195,7 @@ class Environment():
         self.last_local_IOU = local_IOU
 
         self.step_count += 1
-        self.step_vec = np.zeros((self.max_step), dtype=np.int)
+        self.step_vec = np.zeros((self.max_step), dtype=np.int64)
 
         if self.step_count == self.max_step:
             done = True
@@ -171,7 +203,13 @@ class Environment():
             done = False
             self.step_vec[self.step_count] = 1
 
-        return self.ref, self.all_boxes/self.vox_size_l, self.step_vec, reward, done
+        info = {}
+
+        return state, reward, done, info
+
+    def render(self):
+        pass
+        #self.__plot_boxes(self.all_boxes)
 
     def next_no_update(self, action):
 
@@ -179,7 +217,7 @@ class Environment():
         IOU, local_IOU, delete_count = self.compute_increment(try_boxes)
         reward = self.compute_reward(IOU, local_IOU, delete_count)
 
-        step_vec = np.zeros((self.max_step), dtype=np.int)
+        step_vec = np.zeros((self.max_step), dtype=np.int64)
         if self.step_count+1 >= self.max_step:
             done = True
         else:
@@ -192,15 +230,13 @@ class Environment():
         # voxelize the boxes
         # canvas -> 和 self.target 张一样的全0矩阵
         # target -> target_h
-        canvas = np.zeros_like(self.target_h, dtype=np.int)
+        canvas = np.zeros_like(self.target_h, dtype=np.int64)
 
-        # box 大小限定在[0, self.vox_size_l - 1] -> clip_box
-        clip_box = np.clip(box, 0, self.vox_size_l-1)
         # box -> canvas
-        left = lambda x: int(x * 4) + round(math.ceil(x * 4) - x * 4)
+        left = lambda x: round(x * 4)
         right = lambda x: int(x * 4) + round(x * 4 - math.floor(x * 4))
         for i in range(self.box_num):
-            [x, y, z, x_, y_, z_] = clip_box[i][0:6]
+            [x, y, z, x_, y_, z_] = box[i][0:6]
             canvas[left(x):right(x_), left(y):right(y_), left(z):right(z_)] = 1
 
         intersect = canvas & self.target_h
@@ -209,19 +245,18 @@ class Environment():
         union = canvas | self.target_h
         u_count = np.sum(union == 1)
 
+        iou = float(i_count)/float(u_count)
+
         delete_count = 0
         sum_single_iou = 0
 
         for i in range(self.box_num):
-
-            if box[i][3]-box[i][0] <= 0 or box[i][4]-box[i][1] <= 0 or box[i][5]-box[i][2] <= 0:
+            if box[i][3] == box[i][0] or box[i][4] == box[i][1] or box[i][5] == box[i][2]:
                 delete_count += 1
-
             else:
-                single_canvas = np.zeros(
-                    (self.vox_size_l, self.vox_size_l, self.vox_size_l), dtype=np.int)
-                [x, y, z, x_, y_, z_] = clip_box[i][0:6]
-                single_canvas[x:x_, y:y_, z:z_] = 1
+                single_canvas = np.zeros_like(self.target_h, dtype=np.int64)
+                [x, y, z, x_, y_, z_] = box[i][0:6]
+                single_canvas[left(x):right(x_), left(y):right(y_), left(z):right(z_)] = 1
 
                 single_intersect = single_canvas & self.target_h
                 s_i_count = np.sum(single_intersect == 1)
@@ -229,10 +264,7 @@ class Environment():
                 single_union = single_canvas | self.target_h
                 s_u_count = np.sum(single_union == 1)
 
-                local_iou = float(s_i_count) / float(s_u_count)
-                sum_single_iou += local_iou
-
-        iou = float(i_count)/float(u_count)
+                sum_single_iou += float(s_i_count) / float(s_u_count)
 
         if delete_count == self.box_num:
             local_iou = 0
@@ -251,6 +283,8 @@ class Environment():
         b = 0.01
 
         reward = r_iou + a*r_local + b*r_parsimony
+        if reward == 0:
+            reward -= 1
 
         return reward
 
@@ -293,7 +327,7 @@ class Environment():
     def get_valid_action_mask(self, boxes_normalized):
 
         boxes = boxes_normalized*self.vox_size_l
-        valid_mask = np.ones((self.action_num), dtype=np.int)
+        valid_mask = np.ones((self.action_num), dtype=np.int64)
 
         for a in range(self.action_num):
 
@@ -326,7 +360,7 @@ class Environment():
         dz = lz/float(subz-1)
 
         v, f = [], []
-        map_index = np.zeros((subx, suby, subz), dtype=np.int)-1
+        map_index = np.zeros((subx, suby, subz), dtype=np.int64)-1
 
         index = 0
         # all vertices
@@ -375,7 +409,7 @@ class Environment():
         f = np.array(f)+v_offset
 
         loop_list = []
-        loop_map = np.zeros((v.shape[0], 2), np.int)-1
+        loop_map = np.zeros((v.shape[0], 2), np.int64)-1
         loop_index = l_offset
 
         lens = [lx, ly, lz]
@@ -474,7 +508,7 @@ class Environment():
         sum_volume = np.sum(volume)
         interval = float(sum_volume)/float(self.loop_num)
 
-        box_subdiv = np.zeros((boxnum, 3), dtype=np.int)
+        box_subdiv = np.zeros((boxnum, 3), dtype=np.int64)
         ctrl_loop_num = 0
 
         for i in range(boxnum):
@@ -636,3 +670,47 @@ class Environment():
                 for j in range(len(box_loop_list[i])):
                     file.write(str(box_loop_list[i][j])+" ")
                 file.write("\n")
+
+
+import gym
+import numpy as np
+from stable_baselines3 import SAC
+import chimera
+
+if __name__ == "__main__":
+    # env = Environment()
+    # from stable_baselines3.common.env_checker import check_env
+    # check_env(env)
+
+    # obs = env.reset()
+    # reward = -1
+    # i = 0
+    # while i != 10:
+    #     print(f"state : {obs}, reward : {reward}")
+    #     action = np.random.uniform(-1, 1, size=(162,))
+    #     obs, reward, done, _ = env.step(action)
+    #     env.output_result(f"res{i}", "./")
+    #     i += 1
+    #     if done:
+    #         brea
+
+
+    env = gym.make("Prim-v0")
+
+    model = SAC("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=10000, log_interval=4)
+    model.save("sac_pendulum")
+
+    del model # remove to demonstrate saving and loading
+
+    model = SAC.load("sac_pendulum")
+
+    obs = env.reset()
+    i = 0
+    while i!=10:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, done, info = env.step(action)
+        env.output_result(f"res{i}", "./")
+        i += 1
+        if done:
+            obs = env.reset()
