@@ -6,3 +6,8 @@ register(
     # Expalined in envs/__init__.py
     entry_point='chimera.envs:PrimEnv',
 )
+
+register(
+    id='Mesh-v0',
+    entry_point='chimera.envs:MeshEnv',
+)
